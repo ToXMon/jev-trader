@@ -73,27 +73,30 @@ Until then, **Uniswap AMM** is the recommended venue for Arc ETH-USDC trading.
 
 ## Implementation Strategy
 
-### Phase 1: Read-Only Price Feed (Dry-Run)
+### Phase 1: Read-Only Price Feed (Dry-Run) ✅ **IMPLEMENTED**
 
-Minimal viable adapter:
+**Status**: Working Arc Uniswap adapter with verified addresses!
 
-```typescript
-interface VenueAdapter {
-  readPrice(): Promise<{ mid: number; bid: number; ask: number }>;
-  // No order submission yet
-}
-```
+See `src/venues/uniswap-arc.ts` for implementation.
 
-**For Uniswap on Arc:**
-1. Use Uniswap Trading API to get quotes for ETH-USDC
-2. Bid = sell quote price (what you'd receive selling)
-3. Ask = buy quote price (what you'd pay buying)
-4. Mid = (bid + ask) / 2
+**Verified contract addresses** (sources: Uniswap SDK, ethskills, Uniswap v3-subgraph PR):
+- WETH (bridged): `0x128cC466B61f542da60c70e3aA11c10e19B84EDB`
+- USDC (6 decimals): `0x3600000000000000000000000000000000000000`
+- Uniswap V3 Factory: `0xf0db7b58379503491d857db50ac9ece64c653918`
+- SwapRouter02: `0x1f7d7550b1b028f7571e69a784071f0205fd2efa`
+- Quoter: `0x78D78E420Da98ad378D7799bE8f4AF69033EB077`
+
+**How it works:**
+1. Uses Uniswap V3 Quoter `callStatic.quoteExactInputSingle` for WETH-USDC
+2. Queries: "Sell 1 WETH, how much USDC?"
+3. Bid/ask calculated from pool fee (0.3% = 30 bps spread)
+4. Returns `PriceData` with mid, bid, ask, spreadBps
 
 **Dry-run behavior:**
-- Model sees real Arc prices
+- Model sees real Arc Uniswap prices
 - Decisions logged
 - No swaps executed (same as current Monad dry-run)
+- Next: Wire into trading loop for end-to-end test
 
 ### Phase 2: Live Execution (Future, requires approval)
 
