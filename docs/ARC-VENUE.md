@@ -79,18 +79,22 @@ Until then, **Uniswap AMM** is the recommended venue for Arc ETH-USDC trading.
 
 See `src/venues/uniswap-arc.ts` for implementation.
 
-**Verified contract addresses** (sources: Uniswap SDK, ethskills, Uniswap v3-subgraph PR):
-- WETH (bridged): `0x128cC466B61f542da60c70e3aA11c10e19B84EDB`
-- USDC (6 decimals): `0x3600000000000000000000000000000000000000`
+**Verified contract addresses** (source: Uniswap SDK `ARC_ADDRESSES`, verified on-chain 2026-09-26):
+- WETH (bridged): `0x128cC466B61f542da60c70e3aA11c10e19B84EDB` (18 decimals)
+- USDC (predeploy): `0x3600000000000000000000000000000000000000` (6 decimals)
 - Uniswap V3 Factory: `0xf0db7b58379503491d857db50ac9ece64c653918`
-- SwapRouter02: `0x1f7d7550b1b028f7571e69a784071f0205fd2efa`
-- Quoter: `0x78D78E420Da98ad378D7799bE8f4AF69033EB077`
+- SwapRouter02: `0x53bf6b0684ec7ef91e1387da3d1a1769bc5a6f77`
+- QuoterV2: `0x7dfd4f31be6814d2906bde155c3e1b146eac1468` (has code, returns quotes)
+- WETH-USDC Pool (0.3%): `0x964cFF2cCCB9059e83D507df348f070e5257A2e0`
 
 **How it works:**
-1. Uses Uniswap V3 Quoter `callStatic.quoteExactInputSingle` for WETH-USDC
-2. Queries: "Sell 1 WETH, how much USDC?"
-3. Bid/ask calculated from pool fee (0.3% = 30 bps spread)
+1. Uses Uniswap V3 **QuoterV2** (struct-param ABI) for WETH-USDC
+2. Queries both directions:
+   - Sell: `quoteExactInputSingle(WETH→USDC, 1 ETH)` → bid price
+   - Buy: `quoteExactOutputSingle(USDC→WETH, want 1 ETH)` → ask price
+3. Mid = (bid + ask) / 2, real spread from pool
 4. Returns `PriceData` with mid, bid, ask, spreadBps
+5. Pool fee 3000 (0.3%) verified working on Arc
 
 **Dry-run behavior:**
 - Model sees real Arc Uniswap prices
