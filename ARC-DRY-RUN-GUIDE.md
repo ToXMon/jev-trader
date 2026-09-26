@@ -26,8 +26,10 @@ PRIVATE_KEY=
 # (leave PRIVATE_KEY unset for dry-run)
 
 # Model selection
-MODEL=mock
-# (use mock for deterministic decisions, or jev with TYPESAFE_AI_API_KEY)
+MODEL=laya
+# mock | jev | laya — laya hits live Akash laya-serve (needs LAYA_API_KEY)
+LAYA_BASE_URL=http://provider.h4i-dedicated.eu-sw-2.digitalfrontier.so:30131/v1
+LAYA_API_KEY=
 
 # Trading parameters (same as Monad defaults)
 TRADE_SIZE_MON=200
@@ -188,6 +190,20 @@ These addresses are verified on Arc mainnet (chainId 5042):
 **Quote size**: 0.01 ETH (normalized to per-1-ETH prices)  
 **Expected mid**: ~2600–2800 USDC per ETH (pool slot0 mid ≈2689)  
 **Note**: 1 ETH quotes fail/skew due to thin liquidity; use 0.01 ETH notional
+
+## Live Laya (MODEL=laya)
+
+To run Arc dry-run with the live Akash **laya-serve** instead of mock/Jev:
+
+```bash
+CHAIN=arc
+MODEL=laya
+DRY_RUN=true
+LAYA_BASE_URL=http://provider.h4i-dedicated.eu-sw-2.digitalfrontier.so:30131/v1
+LAYA_API_KEY=...   # from akash-private/laya-serve.secrets.env — do not commit
+```
+
+Startup should show `model=laya` (not `mock`). Venue stays simulated (`DRY RUN` / `(sim)`); only the deduction call hits Laya (`POST ${LAYA_BASE_URL}/systemone`). Health check: `curl $LAYA_HOST/health` → `{status:ok, loaded:[english], device:cuda}`.
 
 ## Next Steps
 

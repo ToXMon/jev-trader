@@ -1,5 +1,5 @@
 import { experimental_evaluate } from "ai";
-import { typeSafeAi } from "@ai-sdk/typesafe-ai";
+import { createTypeSafeAi } from "@ai-sdk/typesafe-ai";
 import { config } from "./config";
 
 /** Models answer buy or sell. `hold` only appears on late blocks (no decision was made). */
@@ -44,30 +44,70 @@ export interface Model {
   decide(state: TradeState): Promise<Decision>;
 }
 
-const QUESTIONS = {
-  direction: {
-    type: "choice",
-    instructions: {
-      question: "Will MON be higher or lower than the current mid after `horizonBlocks` more blocks?",
-      goal: "Trade MON-USDC on Kuru. Blocks are ~300ms; `horizonBlocks` (~30 s) is the horizon. A decision is made every few blocks and held until the next one. The trade crosses the spread (`spreadBps`), so the move must beat that cost.",
-      timing: "The order executes as an immediate-or-cancel market order in the next block.",
-      inputs: "Taker flow is the strongest signal: `trades.cvdMon` (taker buys minus taker sells over the horizon), `trades.lastSide` and `recentTrades` show who is hitting the book. `depth` and `book` show resting liquidity per side at several distances from mid; thin depth on one side means price moves easily that way. `returnsBps` and `recentMids` show the path over the horizon. If `allowed.buy` is false the trade will be a sell regardless, and vice versa.",
-    },
-    criteria: {
-      buy: "Buy MON now: mid more likely to be higher after `horizonBlocks` blocks, by more than the spread.",
-      sell: "Sell MON now: mid more likely to be lower after `horizonBlocks` blocks, by more than the spread.",
-    },
-  },
-} as const;
+/** Arc ETH-USDC / Uniswap vs Monad MON-USDC / Kuru. */
+function isArcEth(state: TradeState): boolean {
+  const market = state.market ?? "";
+  const venue = state.venue ?? "";
+  return /ETH-?USDC/i.test(market) || /uniswap/i.test(venue);
+}
 
-/** Real Jev via the AI SDK. Swap-in is the MODEL env var. */
-export class JevModel implements Model {
-  readonly name = config.jevModelId;
-  private model = typeSafeAi.evaluationModel(config.jevModelId);
+function buildQuestions(state: TradeState) {
+  if (isArcEth(state)) {
+    return {
+      direction: {
+        type: "choice" as const,
+        instructions: {
+          question: "Will ETH be higher or lower than the current mid after `horizonBlocks` more blocks?",
+          goal: "Trade ETH-USDC on Uniswap (Arc). Blocks are ~`blockMs`ms; `horizonBlocks` is the horizon. A decision is made every few blocks and held until the next one. The trade crosses the spread (`spreadBps`), so the move must beat that cost.",
+          timing: "The order executes as an immediate-or-cancel market order in the next block.",
+          inputs: "`returnsBps` and `recentMids` show the path over the horizon. AMM venues may omit CLOB `book`/`depth`; when present, thin depth on one side means price moves easily that way. `trades` may be sparse on Arc. If `allowed.buy` is false the trade will be a sell regardless, and vice versa.",
+        },
+        criteria: {
+          buy: "Buy ETH now: mid more likely to be higher after `horizonBlocks` blocks, by more than the spread.",
+          sell: "Sell ETH now: mid more likely to be lower after `horizonBlocks` blocks, by more than the spread.",
+        },
+      },
+    };
+  }
+
+  return {
+    direction: {
+      type: "choice" as const,
+      instructions: {
+        question: "Will MON be higher or lower than the current mid after `horizonBlocks` more blocks?",
+        goal: "Trade MON-USDC on Kuru. Blocks are ~300ms; `horizonBlocks` (~30 s) is the horizon. A decision is made every few blocks and held until the next one. The trade crosses the spread (`spreadBps`), so the move must beat that cost.",
+        timing: "The order executes as an immediate-or-cancel market order in the next block.",
+        inputs: "Taker flow is the strongest signal: `trades.cvdMon` (taker buys minus taker sells over the horizon), `trades.lastSide` and `recentTrades` show who is hitting the book. `depth` and `book` show resting liquidity per side at several distances from mid; thin depth on one side means price moves easily that way. `returnsBps` and `recentMids` show the path over the horizon. If `allowed.buy` is false the trade will be a sell regardless, and vice versa.",
+      },
+      criteria: {
+        buy: "Buy MON now: mid more likely to be higher after `horizonBlocks` blocks, by more than the spread.",
+        sell: "Sell MON now: mid more likely to be lower after `horizonBlocks` blocks, by more than the spread.",
+      },
+    },
+  };
+}
+
+/** Real TypeSafe evaluation (Jev hosted or live Laya). Swap-in is the MODEL env var. */
+export class TypeSafeModel implements Model {
+  readonly name: string;
+  private model: ReturnType<ReturnType<typeof createTypeSafeAi>["evaluationModel"]>;
+
+  constructor(name: string, modelId: string, opts?: { apiKey?: string; baseURL?: string }) {
+    this.name = name;
+    const provider = opts?.apiKey || opts?.baseURL
+      ? createTypeSafeAi({ apiKey: opts.apiKey, baseURL: opts.baseURL })
+      : createTypeSafeAi();
+    this.model = provider.evaluationModel(modelId);
+  }
 
   async decide(state: TradeState): Promise<Decision> {
     const t0 = performance.now();
-    const r = await experimental_evaluate({ model: this.model, state: state as any, questions: QUESTIONS, maxRetries: 0 });
+    const r = await experimental_evaluate({
+      model: this.model,
+      state: state as any,
+      questions: buildQuestions(state),
+      maxRetries: 0,
+    });
     const a = r.answers.direction;
     const p = a.probabilities ?? { buy: 0, sell: 0, [a.choice]: 1 };
     const buy = p.buy ?? 0, sell = p.sell ?? 0;
@@ -81,6 +121,13 @@ export class JevModel implements Model {
   }
 }
 
+/** @deprecated alias — prefer TypeSafeModel */
+export class JevModel extends TypeSafeModel {
+  constructor() {
+    super(config.jevModelId, config.jevModelId);
+  }
+}
+
 /** Deterministic stand-in: momentum + imbalance + mean reversion toward flat. */
 export class MockModel implements Model {
   readonly name = "mock";
@@ -89,7 +136,7 @@ export class MockModel implements Model {
     const t0 = performance.now();
     // momentum + book imbalance + noise, pulled back toward flat so it trades both ways
     const flow = state.trades.buyMon + state.trades.sellMon ? state.trades.cvdMon / (state.trades.buyMon + state.trades.sellMon) : 0;
-    const signal = state.returnsBps.last20 / 8 + state.bookImbalance * 1.5 + flow * 2 + this.noise(state.block);
+    const signal = state.returnsBps.last20 / 8 + (state.bookImbalance ?? 0) * 1.5 + flow * 2 + this.noise(state.block);
     const buy = 1 / (1 + Math.exp(-signal)); // binary softmax
     const probabilities = { buy, sell: 1 - buy, hold: 0 };
     const action: Action = buy >= 0.5 ? "buy" : "sell";
@@ -109,4 +156,16 @@ export class MockModel implements Model {
   }
 }
 
-export const createModel = (): Model => (config.model === "jev" ? new JevModel() : new MockModel());
+export const createModel = (): Model => {
+  if (config.model === "laya") {
+    if (!config.layaApiKey) throw new Error("MODEL=laya requires LAYA_API_KEY");
+    return new TypeSafeModel("laya", "laya", {
+      apiKey: config.layaApiKey,
+      baseURL: config.layaBaseUrl,
+    });
+  }
+  if (config.model === "jev") {
+    return new TypeSafeModel(config.jevModelId, config.jevModelId);
+  }
+  return new MockModel();
+};

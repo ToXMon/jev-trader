@@ -59,8 +59,14 @@ export const config = {
   pendingBlocks: 10, // give up on a tx with no receipt after this many blocks
   refreshBlocks: 200, // how often to refresh the fee estimate, margin balances and the vault check
   horizonBlocks: Number(env("HORIZON_BLOCKS", "100")), // the model is asked about the move over this many blocks (~30 s)
-  model: env("MODEL", "mock") as "mock" | "jev",
+  model: env("MODEL", "mock") as "mock" | "jev" | "laya",
   jevModelId: env("JEV_MODEL_ID", "jev-latest")!,
+  /** Live Akash laya-serve TypeSafe-compatible base (SDK posts to `${baseURL}/systemone`). */
+  layaBaseUrl: env(
+    "LAYA_BASE_URL",
+    "http://provider.h4i-dedicated.eu-sw-2.digitalfrontier.so:30131/v1",
+  )!,
+  layaApiKey: env("LAYA_API_KEY"),
   jevUsdPerMTok: 0.042,
   port: Number(env("PORT", "3000")),
   historySize: 1000,
