@@ -1,21 +1,22 @@
 import { config } from "./config";
 import { startBlockFeed } from "./chain";
-import { Market } from "./market";
 import { createModel } from "./model";
 import { Trader } from "./trader";
 import { log10 } from "./book";
 import { startServer } from "./server";
+import { createVenueAdapter, getMarketIfKuru } from "./adapter-factory";
 
-const market = new Market();
-await market.init();
+const adapter = createVenueAdapter();
+await adapter.init();
+const market = getMarketIfKuru(adapter); // null for Arc, Market instance for Monad
 const model = createModel();
 
 const server = startServer(
-  { model: model.name, wallet: market.address, dryRun: config.dryRun, market: config.market, startedAt: Date.now() },
+  { model: model.name, wallet: adapter.address, dryRun: config.dryRun, market: config.market, startedAt: Date.now() },
   () => trader.history,
 );
 const trader = new Trader(
-  market,
+  adapter,
   model,
   (e, t) => {
     server.broadcast(e);
@@ -34,8 +35,15 @@ const trader = new Trader(
     server.broadcastQuote(block, quote);
     if (quote.status !== "placed") console.log(`#${block} ${quote.status.toUpperCase()} ${quote.side} @ ${quote.price.toFixed(6)} gas ${quote.gasMon.toFixed(6)} MON ${quote.txHash}`);
   },
+  market, // Pass Market for Kuru, null for Arc
 );
-trader.attachTradeFeed(log10(market.params.sizePrecision));
 
-console.log(`jev-trader · model=${model.name} · post-only ${config.quoteInsideTicks} tick inside the touch · horizon ${config.horizonBlocks} blocks · ${config.dryRun ? "DRY RUN" : `wallet ${market.address}`} · market ${config.market} · read ${config.readRpcUrl} · :${config.port}`);
+// Attach trade feed if we have a Market with params (Kuru only)
+if (market) {
+  trader.attachTradeFeed(log10(market.params.sizePrecision), market.address);
+} else {
+  trader.attachTradeFeed(0, null); // Arc: no trade feed yet
+}
+
+console.log(`jev-trader · chain=${adapter.venueName} (${adapter.chainId}) · pair=${adapter.pair} · model=${model.name} · post-only ${config.quoteInsideTicks} tick inside the touch · horizon ${config.horizonBlocks} blocks · ${config.dryRun ? "DRY RUN" : `wallet ${adapter.address}`} · market ${config.market} · read ${config.readRpcUrl} · :${config.port}`);
 startBlockFeed((block) => trader.onBlock(block));

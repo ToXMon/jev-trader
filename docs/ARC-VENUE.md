@@ -139,11 +139,12 @@ cast call <FACTORY_ADDRESS> \
 ## Next Steps
 
 1. ✅ Document venue landscape (this file)
-2. ⬜ Implement `VenueAdapter` interface
-3. ⬜ Add Monad/Kuru adapter (existing code refactored)
-4. ⬜ Add Arc/Uniswap adapter (read-only price feed)
-5. ⬜ Test dry-run with Arc prices
-6. ⬜ (Later, with approval) Implement Arc swap execution
+2. ✅ Implement `VenueAdapter` interface (`src/venue.ts`)
+3. ✅ Add Arc/Uniswap adapter with verified addresses (`src/venues/uniswap-arc.ts`)
+4. ⬜ Wire adapter into trading loop (`src/market.ts` or adapter factory)
+5. ⬜ Test dry-run: `CHAIN=arc MODEL=mock DRY_RUN=true bun run start`
+6. ⬜ Add Monad/Kuru adapter (wrap existing `Market` class - optional refactor)
+7. ⬜ (Later, with approval) Implement Arc swap execution
 
 ## References
 

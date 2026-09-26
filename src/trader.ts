@@ -3,6 +3,7 @@ import { config } from "./config";
 import { Market, type Book, type Fill, type Quote, type QuoteResult, type Side } from "./market";
 import type { Action, Decision, Model, TradeState } from "./model";
 import { TradeFeed, type MakerFill, type TradePrint } from "./trades";
+import type { VenueAdapter, PriceData } from "./venue";
 
 export interface BlockEvent {
   block: number;
@@ -57,7 +58,7 @@ export class Trader {
   readonly history: BlockEvent[] = [];
   private mids: number[] = [];
   private busy = false;
-  private lastBook: Book | null = null;
+  private lastPrice: PriceData | null = null;
   private trades: TradeFeed | null = null;
   /** Orders we know are resting on the book (live: from receipts; dry run: last block's simulated order). */
   private orders = new Map<number, Resting>();
@@ -68,51 +69,58 @@ export class Trader {
   private totals: Totals = { blocks: 0, decisions: 0, quotes: 0, fills: 0, reverted: 0, lateBlocks: 0, jevUsd: 0, gasMon: 0, gasUsd: 0, realizedUsd: 0, pnlUsd: 0, pnlMon: 0, pnlPct: 0 };
 
   constructor(
-    private market: Market,
+    private adapter: VenueAdapter,
     private model: Model,
     private onEvent: (e: BlockEvent, timing?: Timing) => void,
     private onFill: (block: number, fill: Fill) => void = () => {},
     private onQuote: (block: number, quote: Quote) => void = () => {},
+    private market: Market | null = null, // Optional: for backward compat with TradeFeed
   ) {
     mkdirSync("data", { recursive: true });
   }
 
   /** Call once the market params are known. Without it `trades` in the state is all zeros and no fills are ever seen. */
-  attachTradeFeed(sizeDec: number) {
-    this.trades = new TradeFeed({ market: config.market, url: config.readRpcUrl, sizeDec, maker: this.market.address });
+  attachTradeFeed(sizeDec: number, makerAddress: string | null) {
+    if (makerAddress) {
+      this.trades = new TradeFeed({ market: config.market, url: config.readRpcUrl, sizeDec, maker: makerAddress });
+    }
   }
 
   async onBlock(block: number) {
     this.totals.blocks++;
     this.confirmPending(block); // off the hot path: receipts for earlier blocks' sends
-    if (this.totals.blocks % config.refreshBlocks === 0) this.market.refresh().catch(() => {}); // fee estimate + margin + vault check
+    if (this.totals.blocks % config.refreshBlocks === 0 && this.adapter.refresh) {
+      this.adapter.refresh().catch(() => {}); // fee estimate + margin + vault check
+    }
     if (this.busy) {
       this.totals.lateBlocks++;
-      if (this.lastBook) this.emit(block, this.lastBook, null, null, true);
+      if (this.lastPrice) this.emit(block, this.lastPrice, null, null, true);
       return;
     }
     this.busy = true;
     const t0 = performance.now();
     try {
-      const book = await this.market.readBook();
+      const price = await this.adapter.readPrice();
       const readMs = performance.now() - t0;
-      this.lastBook = book;
-      this.mids.push(book.mid);
+      this.lastPrice = price;
+      this.mids.push(price.mid);
       if (this.mids.length > 400) this.mids.shift();
       this.trades?.poll(block).then(() => this.harvest()); // off the hot path: eth_getLogs for prints (and our fills) since the last poll
 
-      const decision = await this.model.decide(this.buildState(block, book));
+      const decision = await this.model.decide(this.buildState(block, price));
       const wanted: Side = decision.action === "sell" ? "sell" : "buy";
       const other: Side = wanted === "buy" ? "sell" : "buy";
       // The position cap (and, live, margin funds) can only pick the reducing side. The probabilities still show the model's call.
-      const side: Side | null = this.allowed(wanted, book) ? wanted : this.allowed(other, book) ? other : null;
+      const side: Side | null = this.allowed(wanted, price) ? wanted : this.allowed(other, price) ? other : null;
       this.totals.decisions++;
       this.totals.jevUsd += (decision.inputTokens / 1e6) * config.jevUsdPerMTok;
 
       let quote: Quote | null = null;
-      if (side) {
+      if (side && this.market) {
+        // CLOB path (Kuru): execute via Market
         decision.action = side;
         const cancel = [...this.orders.keys()].filter((id) => id > 0); // simulated orders have negative ids
+        const book = this.lastPrice as any; // Cast for backward compat
         quote = await this.market.send(block, side, config.tradeSizeMon, book, cancel, side !== wanted);
         this.totals.quotes++;
         if (quote.status === "sim") {
@@ -121,8 +129,26 @@ export class Trader {
         } else if (quote.txHash) {
           this.inflight.set(quote.txHash, quote);
         }
+      } else if (side) {
+        // AMM path: simulate (no live execution yet)
+        decision.action = side;
+        const quotePrice = side === "buy" ? price.ask : price.bid;
+        quote = {
+          side,
+          price: quotePrice,
+          size: config.tradeSizeMon,
+          txHash: null,
+          gasMon: 0,
+          cancel: [],
+          status: "sim",
+          orderId: null,
+          capped: side !== wanted,
+        };
+        this.totals.quotes++;
+        this.orders.clear();
+        this.orders.set(--this.simId, { side, price: quotePrice, size: config.tradeSizeMon, block });
       }
-      this.emit(block, book, decision, quote, false, { readMs: Math.round(readMs), loopMs: Math.round(performance.now() - t0) });
+      this.emit(block, price, decision, quote, false, { readMs: Math.round(readMs), loopMs: Math.round(performance.now() - t0) });
     } catch (e) {
       console.error(`block ${block}:`, (e as Error).message);
     } finally {
@@ -132,9 +158,11 @@ export class Trader {
 
   /** One eth_getTransactionReceipt per in-flight tx, in parallel with this block's decision. */
   private confirmPending(block: number) {
-    this.market.pollPending(block).then((results) => {
-      for (const r of results) this.applyQuoteResult(r);
-    }).catch(() => {});
+    if (this.market) {
+      this.market.pollPending(block).then((results) => {
+        for (const r of results) this.applyQuoteResult(r);
+      }).catch(() => {});
+    }
   }
 
   private applyQuoteResult({ block, quote, canceled }: QuoteResult) {
@@ -152,7 +180,7 @@ export class Trader {
   private harvest() {
     if (!this.trades) return;
     const prints = this.trades.drainPrints();
-    const fills: Fill[] = this.market.wallet ? this.liveFills(this.trades.drainFills()) : this.simFills(prints);
+    const fills: Fill[] = (this.market && this.market.wallet) ? this.liveFills(this.trades.drainFills()) : this.simFills(prints);
     if (!fills.length) return;
     const byBlock = new Map<number, Fill[]>();
     for (const f of fills) {
@@ -216,30 +244,42 @@ export class Trader {
     return side === "buy" ? this.market.margin.usdc >= size * book.ask : this.market.margin.mon >= size;
   }
 
-  private buildState(block: number, book: Book): TradeState {
+  private buildState(block: number, price: PriceData): TradeState {
     const m = this.mids, n = m.length, H = config.horizonBlocks;
     const ret = (k: number) => (n > k ? ((m[n - 1]! - m[n - 1 - k]!) / m[n - 1 - k]!) * 10_000 : 0);
     const sampled = m.slice(-H).filter((_, i, a) => (a.length - 1 - i) % 5 === 0); // every 5th block, newest included
-    const lvl = (l: [number, number]) => `${l[0].toFixed(6)} x ${round(l[1], 1)}`;
     const empty = { count: 0, buyMon: 0, sellMon: 0, cvdMon: 0, vwap: null, lastPrice: null, lastSide: null };
-    const depth: TradeState["depth"] = {};
-    for (const [k, v] of Object.entries(book.depthBps)) depth[k + "bps"] = { bid: round(v.bid, 1), ask: round(v.ask, 1) };
-    return {
-      market: "MON-USDC",
+    
+    const state: TradeState = {
+      market: this.adapter.pair,
+      venue: this.adapter.venueName,
       block,
       horizonBlocks: H,
       blockMs: 300,
-      mid: book.mid,
-      spreadBps: round(book.spreadBps, 2),
-      bookImbalance: round(book.imbalance, 3),
-      depth,
-      book: { bids: book.levels.bids.map(lvl), asks: book.levels.asks.map(lvl) },
+      mid: price.mid,
+      spreadBps: round(price.spreadBps, 2),
       returnsBps: { last1: round(ret(1), 2), last5: round(ret(5), 2), last20: round(ret(20), 2), last100: round(ret(100), 2) },
       recentMids: sampled.map((x) => x.toFixed(6)).join(" "),
       trades: this.trades ? this.trades.summary(H, block) : empty,
       recentTrades: (this.trades?.recent(10) ?? []).map((t) => `${t.block} ${t.side} ${round(t.size, 1)} @ ${t.price.toFixed(6)}`),
-      allowed: { buy: this.allowed("buy", book), sell: this.allowed("sell", book) },
+      allowed: { buy: this.allowed("buy", price), sell: this.allowed("sell", price) },
     };
+    
+    // Add CLOB-specific fields if available
+    if (price.levels) {
+      const lvl = (l: [number, number]) => `${l[0].toFixed(6)} x ${round(l[1], 1)}`;
+      state.book = { bids: price.levels.bids.map(lvl), asks: price.levels.asks.map(lvl) };
+    }
+    
+    if (price.liquidity) {
+      // Simple imbalance from liquidity if available
+      const { bidDepth, askDepth } = price.liquidity;
+      if (bidDepth + askDepth > 0) {
+        state.bookImbalance = round((bidDepth - askDepth) / (bidDepth + askDepth), 3);
+      }
+    }
+    
+    return state;
   }
 
   private applyFill(f: Fill) {
@@ -264,9 +304,9 @@ export class Trader {
   private entryPrice() { return this.position.mon ? this.position.costUsd / this.position.mon : null; }
   private unrealizedUsd(mid: number) { return this.position.mon ? this.position.mon * (mid - this.entryPrice()!) : 0; }
 
-  private emit(block: number, book: Book, decision: Decision | null, quote: Quote | null, late: boolean, timing?: Timing) {
+  private emit(block: number, price: PriceData, decision: Decision | null, quote: Quote | null, late: boolean, timing?: Timing) {
     const t = this.totals;
-    t.gasUsd = t.gasMon * book.mid;
+    t.gasUsd = t.gasMon * price.mid;
     const unrealized = this.unrealizedUsd(book.mid);
     t.pnlUsd = t.realizedUsd + unrealized - t.gasUsd;
     t.pnlMon = t.pnlUsd / book.mid;

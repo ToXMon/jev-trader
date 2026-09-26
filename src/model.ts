@@ -7,17 +7,22 @@ export type Action = "buy" | "sell" | "hold";
 
 /** What the model sees. Compact, relative, human-readable. */
 export interface TradeState {
-  market: "MON-USDC";
+  market: string; // "MON-USDC" or "ETH-USDC" etc.
+  venue?: string; // "Kuru" or "Uniswap V3" etc.
   block: number;
   horizonBlocks: number; // the question is about the move over this many blocks
   blockMs: number;
   mid: number;
   spreadBps: number;
-  bookImbalance: number; // -1 (all asks) .. 1 (all bids), within 1% of mid
+  
+  // CLOB-specific fields (optional for AMM venues)
+  bookImbalance?: number; // -1 (all asks) .. 1 (all bids), within 1% of mid
   /** Cumulative resting MON within 10/25/50 bps of mid, per side. */
-  depth: { [band: string]: { bid: number; ask: number } };
+  depth?: { [band: string]: { bid: number; ask: number } };
   /** Top 5 levels each side, best first, as "price x size". */
-  book: { bids: string[]; asks: string[] };
+  book?: { bids: string[]; asks: string[] };
+  
+  // Common fields
   returnsBps: { last1: number; last5: number; last20: number; last100: number };
   recentMids: string; // oldest..newest, sampled every 5 blocks over the horizon, space separated
   /** Taker prints over the last `horizonBlocks`. cvdMon = taker buy volume - taker sell volume. */
