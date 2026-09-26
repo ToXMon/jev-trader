@@ -89,12 +89,15 @@ See `src/venues/uniswap-arc.ts` for implementation.
 
 **How it works:**
 1. Uses Uniswap V3 **QuoterV2** (struct-param ABI) for WETH-USDC
-2. Queries both directions:
-   - Sell: `quoteExactInputSingle(WETH→USDC, 1 ETH)` → bid price
-   - Buy: `quoteExactOutputSingle(USDC→WETH, want 1 ETH)` → ask price
-3. Mid = (bid + ask) / 2, real spread from pool
-4. Returns `PriceData` with mid, bid, ask, spreadBps
-5. Pool fee 3000 (0.3%) verified working on Arc
+2. Queries both directions with **0.01 ETH** notional (thin liquidity):
+   - Sell: `quoteExactInputSingle(WETH→USDC, 0.01 ETH)` → USDC out
+   - Buy: `quoteExactOutputSingle(USDC→WETH, want 0.01 ETH)` → USDC in
+   - Fallback: if buy quote fails, synthesize ask from sell + 0.3% fee
+3. Normalize to per-1-ETH prices: `bid = sellOut / 0.01`, `ask = buyIn / 0.01`
+4. Mid = (bid + ask) / 2, real spread from pool quotes
+5. Returns `PriceData` with mid, bid, ask, spreadBps
+6. Pool fee 3000 (0.3%), mid ≈2689 USDC/ETH (verified on Arc)
+7. **Note**: 1 ETH quotes fail/skew; pool has thin liquidity
 
 **Dry-run behavior:**
 - Model sees real Arc Uniswap prices

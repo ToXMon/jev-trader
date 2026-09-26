@@ -108,36 +108,45 @@ export class UniswapArcAdapter implements VenueAdapter {
       throw new Error("QuoterV2 not initialized. Call init() first.");
     }
     
-    const oneEth = ethers.utils.parseUnits("1", this.wethDecimals);
+    // Use 0.01 ETH for quotes to avoid thin-liquidity slippage
+    // Pool has limited depth; 1 ETH quotes revert or are badly skewed
+    const quoteEth = ethers.utils.parseUnits("0.01", this.wethDecimals);
+    const quoteSize = 0.01; // For normalization back to per-1-ETH prices
     const fee = 3000; // 0.3% pool (verified: pool 0x964cFF2cCCB9059e83D507df348f070e5257A2e0 exists)
     
     try {
-      // Quote both directions for accurate bid/ask
-      // Sell direction: WETH -> USDC (how much USDC for 1 ETH?)
+      // Quote both directions for accurate bid/ask (using small notional)
+      // Sell direction: WETH -> USDC (how much USDC for 0.01 ETH?)
       const sellResult = await this.quoterV2.callStatic.quoteExactInputSingle({
         tokenIn: ADDRESSES.WETH,
         tokenOut: ADDRESSES.USDC,
-        amountIn: oneEth,
+        amountIn: quoteEth,
         fee,
         sqrtPriceLimitX96: 0,
       });
-      const sellPrice = Number(ethers.utils.formatUnits(sellResult.amountOut, this.usdcDecimals));
+      const sellUsdcOut = Number(ethers.utils.formatUnits(sellResult.amountOut, this.usdcDecimals));
       
-      // Buy direction: USDC -> WETH (how much USDC to get 1 ETH?)
-      const buyResult = await this.quoterV2.callStatic.quoteExactOutputSingle({
-        tokenIn: ADDRESSES.USDC,
-        tokenOut: ADDRESSES.WETH,
-        amount: oneEth, // we want 1 ETH out
-        fee,
-        sqrtPriceLimitX96: 0,
-      });
-      const buyPrice = Number(ethers.utils.formatUnits(buyResult.amountIn, this.usdcDecimals));
+      // Buy direction: USDC -> WETH (how much USDC to get 0.01 ETH?)
+      let buyUsdcIn: number;
+      try {
+        const buyResult = await this.quoterV2.callStatic.quoteExactOutputSingle({
+          tokenIn: ADDRESSES.USDC,
+          tokenOut: ADDRESSES.WETH,
+          amount: quoteEth, // we want 0.01 ETH out
+          fee,
+          sqrtPriceLimitX96: 0,
+        });
+        buyUsdcIn = Number(ethers.utils.formatUnits(buyResult.amountIn, this.usdcDecimals));
+      } catch (outputErr) {
+        // Fallback: if output quote fails (thin liquidity), synthesize ask from sell + pool fee
+        const poolFeeFactor = 0.003; // 0.3%
+        buyUsdcIn = sellUsdcOut * (1 + poolFeeFactor);
+        console.warn(`QuoterV2 exactOutputSingle failed (thin liquidity), using synthetic ask. Error: ${(outputErr as Error).message}`);
+      }
       
-      // bid = what you get selling ETH (sell price)
-      // ask = what you pay buying ETH (buy price)
-      // mid = average
-      const bid = sellPrice;
-      const ask = buyPrice;
+      // Normalize to per-1-ETH prices
+      const bid = sellUsdcOut / quoteSize; // What you get selling 1 ETH
+      const ask = buyUsdcIn / quoteSize;   // What you pay buying 1 ETH
       const mid = (bid + ask) / 2;
       const spreadBps = ((ask - bid) / mid) * 10_000;
       

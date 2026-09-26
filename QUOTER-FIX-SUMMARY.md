@@ -71,7 +71,9 @@ console.log(`QuoterV2 verified at ${ADDRESSES.QuoterV2}`);
 
 ## Verified On-Chain (2026-09-26)
 ✅ QuoterV2 `0x7dfd4f31be6814d2906bde155c3e1b146eac1468` has code  
-✅ Returns ~944.53 USDC for 1 WETH (fee 3000)  
+✅ Pool mid ≈ **2689 USDC/ETH** (from slot0)  
+✅ Quote size: **0.01 ETH** (1 ETH quotes fail/skew due to thin liquidity)  
+✅ 0.01 ETH quotes: IN ~2678.8, OUT ~2699.5 USDC/ETH  
 ✅ WETH 18 decimals, USDC 6 decimals  
 ✅ WETH-USDC 0.3% pool exists at `0x964cFF2cCCB9059e83D507df348f070e5257A2e0`
 
@@ -87,13 +89,14 @@ CHAIN=arc ALCHEMY_API_KEY=... MODEL=mock DRY_RUN=true bun run start
 **Expected Output:**
 1. ✅ `Arc adapter ready (dry-run only)` on boot
 2. ✅ `QuoterV2 verified at 0x7dfd4f31be6814d2906bde155c3e1b146eac1468`
-3. ✅ `(sim)` ticks with **real mid ~900–1000** (not Quoter revert spam)
-4. ✅ Bid/ask spread from actual two-way quotes
+3. ✅ `(sim)` ticks with **real mid ~2600–2800** USDC/ETH (not Quoter revert spam)
+4. ✅ Bid/ask spread from actual two-way quotes (0.01 ETH notional, normalized)
 
 **NOT Expected:**
 ❌ `CALL_EXCEPTION` errors  
 ❌ `execution reverted` on Quoter  
-❌ Zero prices or missing quotes
+❌ Zero prices or ~944 USDC/ETH (that was 1 ETH slippage artifact)  
+❌ `QuoterV2 call failed` spam
 
 ## Source
 All addresses from **Uniswap SDK `ARC_ADDRESSES`** block:  

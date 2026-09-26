@@ -185,7 +185,9 @@ These addresses are verified on Arc mainnet (chainId 5042):
 **Verified on-chain**: 2026-09-26  
 **Source**: `github.com/Uniswap/sdks` - `sdks/sdk-core/src/addresses.ts` ARC_ADDRESSES block  
 **Pool fee**: 3000 (0.3%) - verified working, fee 500 reverts  
-**Quote result**: ~944.53 USDC per ETH (verified live on Arc mainnet)
+**Quote size**: 0.01 ETH (normalized to per-1-ETH prices)  
+**Expected mid**: ~2600–2800 USDC per ETH (pool slot0 mid ≈2689)  
+**Note**: 1 ETH quotes fail/skew due to thin liquidity; use 0.01 ETH notional
 
 ## Next Steps
 
