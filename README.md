@@ -95,16 +95,33 @@ Set `CHAIN=monad` (default) or `CHAIN=arc` in `.env`. For Arc, also set `ALCHEMY
 
 See `docs/ARC-VENUE.md` for Arc venue research and integration roadmap.
 
+## AI Model: TypeSafe Jev
+
+The bot uses **[TypeSafe AI](https://typesafe.ai)** for trading decisions. Every block, **Jev** (a System One model) sees market state and answers "buy or sell?" with calibrated probabilities. No prompt engineering or LLM text parsing: Jev returns typed decisions code can use directly.
+
+**Model selection:**
+- `MODEL=jev` + `TYPESAFE_AI_API_KEY`: Real Jev decisions (~$0.20/hr)
+- `MODEL=mock` (default): Deterministic momentum heuristic (free, no API key)
+
+Jev is **venue-agnostic**: it decides from market state, not order book mechanics. The same model works for Kuru CLOB (Monad) and Uniswap AMM (Arc) with adjusted state inputs.
+
+See [TypeSafe Trading Patterns](docs/TYPESAFE-TRADING.md) for decision design and Arc adaptation.
+
 ## Layout
 
     src/config.ts   env + chain defaults (Monad/Arc)
     src/chain.ts    block feed (WebSocket newHeads + polling backstop, newest block only), raw RPC
     src/book.ts     one-eth_call order book reader (decodes getL2Book, merges the AMM vault)
     src/market.ts   Kuru: read book, hand-encoded batchUpdate (cancel + post-only place), margin deposits, local nonce, async confirmation
-    src/model.ts    Model interface, JevModel (AI SDK experimental_evaluate), MockModel
+    src/model.ts    Model interface, JevModel (TypeSafe AI), MockModel
     src/trader.ts   the loop: one in flight, hold when late, position and P&L accounting
     src/server.ts   Bun.serve: snapshot, history, SSE
-    docs/ARC-VENUE.md  Arc mainnet venue research and adapter design
+    
+    docs/ARC-VENUE.md         Arc mainnet venue research (Uniswap, future Hibachi/Tangent CLOB)
+    docs/VENUE-ADAPTER.md     Venue adapter interface design (Kuru vs Uniswap abstraction)
+    docs/TYPESAFE-TRADING.md  TypeSafe AI patterns for trading decisions
+    
+    .agents/skills/typesafe-ai/  TypeSafe skill for coding agents
 
 ## The 300 ms budget
 

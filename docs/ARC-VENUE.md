@@ -49,7 +49,27 @@ Arc may support other AMM protocols (Curve, Balancer-style), but Uniswap is the 
 
 ## CLOB Availability
 
-**No CLOB equivalent to Kuru found on Arc at this time.** Arc's DeFi infrastructure appears AMM-focused. If a CLOB launches on Arc later, this document should be updated.
+### Current Status: No Live CLOB
+
+**No production CLOB equivalent to Kuru found on Arc at this time.** Arc's DeFi infrastructure appears AMM-focused as of the mainnet launch.
+
+### Future CLOB Options
+
+Two on-chain order book protocols have been mentioned in Arc context:
+
+#### Hibachi
+- **Status:** Development/testnet stage (not confirmed on Arc mainnet yet)
+- **Type:** On-chain order book DEX
+- If deployed on Arc, would provide CLOB functionality similar to Kuru
+
+#### Tangent
+- **Status:** Development stage (Arc deployment not confirmed)
+- **Type:** On-chain order book protocol
+- Could provide maker/taker order flow on Arc in the future
+
+**Action:** Monitor Arc DeFi ecosystem for Hibachi or Tangent mainnet deployments. If either launches, this bot's Kuru adapter pattern (post-only maker orders, order cancellation, margin accounts) would be directly applicable with contract address updates.
+
+Until then, **Uniswap AMM** is the recommended venue for Arc ETH-USDC trading.
 
 ## Implementation Strategy
 

@@ -285,9 +285,52 @@ CHAIN=arc ALCHEMY_API_KEY=... PRIVATE_KEY=... DRY_RUN=false bun run start
 4. **Preserves existing code:** Phase 2 wraps current `Market` class, no rewrite
 5. **Dry-run compatible:** `executeTrade` is optional; dry-run works with just `readPrice`
 
+## TypeSafe AI Integration
+
+The bot uses **TypeSafe AI's Jev model** (System One) for buy/sell decisions. Jev sees market state and returns structured probabilities, not generated text. The decision layer is **venue-agnostic**: Jev doesn't need to know CLOB vs AMM mechanics.
+
+### Current Flow
+
+```typescript
+// 1. Venue adapter reads market
+const priceData = await venue.readPrice(); // Book (CLOB) or Quotes (AMM)
+
+// 2. Build TradeState from venue data
+const state: TradeState = buildState(priceData, history);
+
+// 3. Jev decides buy/sell
+const decision = await model.decide(state);
+// Returns: { action: "buy"|"sell", probabilities: { buy, sell }, confidence }
+
+// 4. Venue adapter executes (or simulates in dry-run)
+if (!dryRun) {
+  await venue.executeTrade(decision.action, size, priceData);
+}
+```
+
+### Adapting for Arc (Uniswap)
+
+**Key insight:** The venue adapter's job is to translate venue-specific data into `TradeState`. Jev's decision logic stays the same.
+
+**Kuru adapter:**
+- Input: CLOB book levels, taker flow from Trade logs
+- TradeState: `bookImbalance`, `depth`, `book.bids/asks`, `trades.cvdMon`
+
+**Uniswap adapter:**
+- Input: Pool quotes (bid/ask), recent swap events
+- TradeState: `spreadBps` (from quotes), `recentSwaps.cvdEth`, `poolLiquidity`
+- Jev instructions: "Trade ETH-USDC on Uniswap... swap fees are 0.3%..."
+
+**No model retraining needed**: Jev understands natural language state descriptions. Just adjust field names and instructions to match the new venue.
+
+See [TYPESAFE-TRADING.md](TYPESAFE-TRADING.md) for detailed patterns.
+
 ## See Also
 
-- [Arc Venue Research](ARC-VENUE.md) - Venue options and integration details
+- [Arc Venue Research](ARC-VENUE.md) - Venue options (Uniswap, future Hibachi/Tangent CLOB)
+- [TypeSafe Trading Patterns](TYPESAFE-TRADING.md) - How Jev makes decisions, adapting for Arc
 - [README](../README.md) - Setup and usage
 - `src/market.ts` - Current Kuru implementation
+- `src/model.ts` - TypeSafe AI integration (Jev + mock model)
 - `src/trader.ts` - Core trading loop
+- `.agents/skills/typesafe-ai/SKILL.md` - TypeSafe skill documentation
