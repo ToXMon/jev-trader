@@ -1,11 +1,42 @@
 const env = (key: string, fallback?: string) => process.env[key] ?? fallback;
 const num = (key: string) => (env(key) ? Number(env(key)) : undefined);
 
+export const CHAINS = {
+  MONAD: { id: 143, name: "Monad" },
+  ARC: { id: 5042, name: "Arc" },
+} as const;
+
+const getChainDefaults = () => {
+  const alchemyKey = env("ALCHEMY_API_KEY");
+  const chainName = env("CHAIN", "monad").toLowerCase();
+  
+  if (chainName === "arc") {
+    const rpcBase = alchemyKey
+      ? `https://arc-mainnet.g.alchemy.com/v2/${alchemyKey}`
+      : env("RPC_URL", "https://arc-mainnet.g.alchemy.com/v2/your-api-key");
+    return {
+      chainId: CHAINS.ARC.id,
+      rpcUrl: rpcBase,
+      readRpcUrl: rpcBase,
+      wsUrl: undefined,
+    };
+  }
+  
+  return {
+    chainId: CHAINS.MONAD.id,
+    rpcUrl: env("RPC_URL", "https://rpc.monad.xyz")!,
+    readRpcUrl: env("READ_RPC_URL", "https://rpc.monad.xyz")!,
+    wsUrl: env("WS_URL"),
+  };
+};
+
+const defaults = getChainDefaults();
+
 export const config = {
-  rpcUrl: env("RPC_URL", "https://rpc.monad.xyz")!, // sends, receipts, nonce, gas estimation
-  readRpcUrl: env("READ_RPC_URL", "https://rpc.monad.xyz")!, // book reads + eth_blockNumber polling + trade logs
-  wsUrl: env("WS_URL"), // optional; polling backstop always runs
-  chainId: 143,
+  rpcUrl: env("RPC_URL") ?? defaults.rpcUrl,
+  readRpcUrl: env("READ_RPC_URL") ?? defaults.readRpcUrl,
+  wsUrl: env("WS_URL") ?? defaults.wsUrl,
+  chainId: defaults.chainId,
   market: env("MARKET", "0x065C9d28E428A0db40191a54d33d5b7c71a9C394")!, // Kuru MON-USDC
   /** Kuru MarginAccount this market settles against (slot 73 of the OrderBook proxy; verifiedMarket(market) is true). */
   marginAccount: env("MARGIN_ACCOUNT", "0x2A68ba1833cDf93fa9Da1EEbd7F46242aD8E90c5")!,

@@ -2,13 +2,47 @@
 
 One decision every Monad block. A TypeSafe Jev model watches the Kuru MON-USDC order book and answers buy or sell every ~300 ms. Every block posts a real post-only limit order on that side, one tick inside the touch, replacing the last one. Fills happen when a taker hits it, so the bot earns the spread instead of paying it. A small server streams every block to the dashboard.
 
+**NEW:** Experimental support for **Circle Arc mainnet** research (ETH-USDC). See [Arc Venue Documentation](docs/ARC-VENUE.md) for details.
+
 ## Run
+
+### Monad (default)
 
     cp .env.example .env
     bun install
     bun run start
 
 With no `PRIVATE_KEY` it dry-runs: real book, real decisions, simulated fills. Set `MODEL=jev` and `TYPESAFE_AI_API_KEY` to use Jev; the default `mock` is a momentum heuristic stand-in.
+
+### Arc Mainnet (research)
+
+**Paper mode only** (no live trading implemented yet):
+
+1. Get an Alchemy API key for Arc mainnet
+2. Configure `.env`:
+   ```bash
+   CHAIN=arc
+   ALCHEMY_API_KEY=your-alchemy-key
+   DRY_RUN=true
+   # PRIVATE_KEY should remain unset
+   ```
+3. Run: `bun run start`
+
+**Note:** Arc uses Uniswap AMM (not Kuru CLOB). Live trading requires venue adapter implementation. See `docs/ARC-VENUE.md`.
+
+### Local Arc Fork (Foundry)
+
+Test against a forked Arc mainnet without making real transactions:
+
+1. Install [Foundry](https://book.getfoundry.sh/getting-started/installation)
+2. Set `ALCHEMY_API_KEY` in `.env`
+3. Start fork: `./scripts/fork-arc.sh`
+4. In another terminal:
+   ```bash
+   RPC_URL=http://127.0.0.1:8545 READ_RPC_URL=http://127.0.0.1:8545 CHAIN=arc bun run start
+   ```
+
+The fork runs at `http://127.0.0.1:8545` (configurable: `./scripts/fork-arc.sh 9545`).
 
 ## Endpoints
 
@@ -45,15 +79,32 @@ Live sends are fired and forgotten, so the `block` event carries the **intent**:
 
 `txHash` is the taker's transaction. In a dry run the quote is `status: "sim"`: the order rests for one block and a real print crossing its price fills it (`simulated: true`).
 
+## Supported Chains
+
+| Chain | chainId | RPC | Venue | Pair | Status |
+|-------|---------|-----|-------|------|--------|
+| **Monad** | 143 | `https://rpc.monad.xyz` | Kuru CLOB | MON-USDC | ✅ Live |
+| **Arc** | 5042 (0x13b2) | Alchemy: `https://arc-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}` | Uniswap AMM | ETH-USDC | 🔬 Research (dry-run only) |
+
+Set `CHAIN=monad` (default) or `CHAIN=arc` in `.env`. For Arc, also set `ALCHEMY_API_KEY` or provide `RPC_URL` manually.
+
+**Arc differences:**
+- Gas paid in USDC (not native token)
+- No CLOB equivalent to Kuru found yet (AMM-based: Uniswap v3/v4)
+- Venue adapter for live Arc trading not yet implemented
+
+See `docs/ARC-VENUE.md` for Arc venue research and integration roadmap.
+
 ## Layout
 
-    src/config.ts   env
+    src/config.ts   env + chain defaults (Monad/Arc)
     src/chain.ts    block feed (WebSocket newHeads + polling backstop, newest block only), raw RPC
     src/book.ts     one-eth_call order book reader (decodes getL2Book, merges the AMM vault)
     src/market.ts   Kuru: read book, hand-encoded batchUpdate (cancel + post-only place), margin deposits, local nonce, async confirmation
     src/model.ts    Model interface, JevModel (AI SDK experimental_evaluate), MockModel
     src/trader.ts   the loop: one in flight, hold when late, position and P&L accounting
     src/server.ts   Bun.serve: snapshot, history, SSE
+    docs/ARC-VENUE.md  Arc mainnet venue research and adapter design
 
 ## The 300 ms budget
 
