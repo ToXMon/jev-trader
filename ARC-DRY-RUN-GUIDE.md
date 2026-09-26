@@ -173,20 +173,19 @@ Check:
 
 These addresses are verified on Arc mainnet (chainId 5042):
 
-| Contract | Address | Source |
-|----------|---------|--------|
-| WETH (bridged) | `0x128cC466B61f542da60c70e3aA11c10e19B84EDB` | Aave Arc assessment |
-| USDC (6 decimals) | `0x3600000000000000000000000000000000000000` | Circle Arc docs |
-| Uniswap V3 Factory | `0xf0db7b58379503491d857db50ac9ece64c653918` | Uniswap SDK |
-| SwapRouter02 | `0x1f7d7550b1b028f7571e69a784071f0205fd2efa` | Uniswap SDK |
-| Quoter | `0x78D78E420Da98ad378D7799bE8f4AF69033EB077` | Uniswap SDK |
+| Contract | Address | Source | Status |
+|----------|---------|--------|--------|
+| WETH (bridged) | `0x128cC466B61f542da60c70e3aA11c10e19B84EDB` | Aave Arc assessment | ✅ Has code, 18 decimals |
+| USDC (6 decimals) | `0x3600000000000000000000000000000000000000` | Circle Arc docs | ✅ Predeploy, 6 decimals |
+| Uniswap V3 Factory | `0xf0db7b58379503491d857db50ac9ece64c653918` | Uniswap SDK ARC_ADDRESSES | ✅ Has code |
+| SwapRouter02 | `0x53bf6b0684ec7ef91e1387da3d1a1769bc5a6f77` | Uniswap SDK ARC_ADDRESSES | ✅ Has code |
+| QuoterV2 | `0x7dfd4f31be6814d2906bde155c3e1b146eac1468` | Uniswap SDK ARC_ADDRESSES | ✅ Has code, returns quotes |
+| WETH-USDC Pool (0.3%) | `0x964cFF2cCCB9059e83D507df348f070e5257A2e0` | Derived from quotes | ✅ Has liquidity |
 
-**Verified**: 2026-09-26  
-**Sources**: 
-- github.com/Uniswap/sdks (sdk-core/src/addresses.ts)
-- github.com/Uniswap/UniswapX (playbook/chains/arc.md)
-- github.com/Uniswap/v3-subgraph (PR #300)
-- ethskills addresses (austintgriffith/ethskills)
+**Verified on-chain**: 2026-09-26  
+**Source**: `github.com/Uniswap/sdks` - `sdks/sdk-core/src/addresses.ts` ARC_ADDRESSES block  
+**Pool fee**: 3000 (0.3%) - verified working, fee 500 reverts  
+**Quote result**: ~944.53 USDC per ETH (verified live on Arc mainnet)
 
 ## Next Steps
 
