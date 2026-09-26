@@ -235,13 +235,13 @@ export class Trader {
   }
 
   /** Would this order, and everything already resting on its side, keep us inside the cap and (live) inside margin funds? */
-  private allowed(side: Side, book: Book) {
+  private allowed(side: Side, price: PriceData) {
     const size = config.tradeSizeMon;
     const exposure = side === "buy" ? this.position.mon + this.restingMon("buy") + size : this.position.mon - this.restingMon("sell") - size;
     if (Math.abs(exposure) > config.maxPositionMon) return false;
-    if (!this.market.wallet) return true;
+    if (!this.market?.wallet) return true; // dry-run or AMM: skip margin check
     // Kuru debits margin when an order is placed, so the balance already excludes what is resting.
-    return side === "buy" ? this.market.margin.usdc >= size * book.ask : this.market.margin.mon >= size;
+    return side === "buy" ? this.market.margin.usdc >= size * price.ask : this.market.margin.mon >= size;
   }
 
   private buildState(block: number, price: PriceData): TradeState {
@@ -307,13 +307,13 @@ export class Trader {
   private emit(block: number, price: PriceData, decision: Decision | null, quote: Quote | null, late: boolean, timing?: Timing) {
     const t = this.totals;
     t.gasUsd = t.gasMon * price.mid;
-    const unrealized = this.unrealizedUsd(book.mid);
+    const unrealized = this.unrealizedUsd(price.mid);
     t.pnlUsd = t.realizedUsd + unrealized - t.gasUsd;
-    t.pnlMon = t.pnlUsd / book.mid;
+    t.pnlMon = t.pnlUsd / price.mid;
     t.pnlPct = (t.pnlUsd / config.bankrollUsd) * 100;
     const size = Math.abs(this.position.mon);
     const event: BlockEvent = {
-      block, ts: Date.now(), mid: book.mid, bestBid: book.bid, bestAsk: book.ask, spreadBps: round(book.spreadBps, 2),
+      block, ts: Date.now(), mid: price.mid, bestBid: price.bid, bestAsk: price.ask, spreadBps: round(price.spreadBps, 2),
       decision: late
         ? { action: "hold", probabilities: { buy: 0, sell: 0, hold: 1 }, upIn10: 0.5, latencyMs: 0, late: true }
         : decision && { action: decision.action, probabilities: decision.probabilities, upIn10: decision.upIn10, latencyMs: Math.round(decision.latencyMs), late: false },
@@ -322,7 +322,7 @@ export class Trader {
       resting: { bidMon: round(this.restingMon("buy"), 1), askMon: round(this.restingMon("sell"), 1) },
       position: {
         side: this.position.mon > 0 ? "long" : this.position.mon < 0 ? "short" : "flat",
-        size, entryPrice: this.entryPrice(), unrealizedUsd: round(unrealized, 4), unrealizedMon: round(unrealized / book.mid, 4),
+        size, entryPrice: this.entryPrice(), unrealizedUsd: round(unrealized, 4), unrealizedMon: round(unrealized / price.mid, 4),
       },
       totals: { ...t, jevUsd: round(t.jevUsd, 6), gasMon: round(t.gasMon, 6), gasUsd: round(t.gasUsd, 6), realizedUsd: round(t.realizedUsd, 4), pnlUsd: round(t.pnlUsd, 4), pnlMon: round(t.pnlMon, 4), pnlPct: round(t.pnlPct, 3) },
     };
